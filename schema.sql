@@ -9,7 +9,7 @@ create extension if not exists pg_trgm;
 -- 2. 建表
 create table if not exists memories (
   id         uuid default gen_random_uuid() primary key,
-  role       text not null check (role in ('user', 'ai')),
+  role       text not null check (role in ('user', 'ai', 'system')),
   content    text not null,
   source     text default 'chat' check (source in ('chat', 'diary')),
   tags       text[] default '{}',

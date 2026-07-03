@@ -46,7 +46,7 @@ function auth(req, res, next) {
 // ---- 限流 ----
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 分钟
-  max: 300,                  // 最多 300 次请求
+  max: 2000,                // 导入期间临时提高，之后改回 300                  // 最多 300 次请求
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too Many Requests — 请求太频繁' },
@@ -81,8 +81,8 @@ app.post('/api/memories', async (req, res) => {
     const { role, content, source, tags, metadata } = req.body;
 
     // 字段校验
-    if (!role || !['user', 'ai'].includes(role)) {
-      return res.status(400).json({ error: 'role 必须是 "user" 或 "ai"' });
+    if (!role || !['user', 'ai', 'system'].includes(role)) {
+      return res.status(400).json({ error: 'role 必须是 "user"、"ai" 或 "system"' });
     }
     if (!content || typeof content !== 'string' || content.trim().length === 0) {
       return res.status(400).json({ error: 'content 不能为空' });
