@@ -181,6 +181,30 @@ app.patch('/api/memories/:id', async (req, res) => {
 });
 
 // ============================================
+// 删除单条记忆
+// DELETE /api/memories/:id
+// ============================================
+app.delete('/api/memories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data, error } = await supabase
+      .from('memories')
+      .delete()
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: '未找到该记忆' });
+    res.json({ deleted: data });
+  } catch (err) {
+    console.error('DELETE /api/memories/:id error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
 // 404
 // ============================================
 app.use((_req, res) => {
