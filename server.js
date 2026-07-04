@@ -52,12 +52,8 @@ const limiter = rateLimit({
   message: { error: 'Too Many Requests — 请求太频繁' },
 });
 
-// 所有 /api 路由都需要鉴权 + 限流
-app.use('/api', limiter);
-app.use('/api', auth);
-
 // ============================================
-// 健康检查
+// 健康检查（无需鉴权，给 UptimeRobot 用）
 // GET /api/health
 // ============================================
 app.get('/api/health', async (_req, res) => {
@@ -71,6 +67,10 @@ app.get('/api/health', async (_req, res) => {
     res.status(500).json({ status: 'error', detail: err.message });
   }
 });
+
+// ---- 鉴权 + 限流（所有写操作接口） ----
+app.use('/api', limiter);
+app.use('/api', auth);
 
 // ============================================
 // 存记忆
