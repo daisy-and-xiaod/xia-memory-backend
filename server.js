@@ -152,7 +152,7 @@ app.get('/api/memories', async (req, res) => {
 // ============================================
 const EMBEDDING_KEY = process.env.EMBEDDING_KEY || '';
 const EMBEDDING_URL = process.env.EMBEDDING_URL || 'https://openrouter.ai/api/v1/embeddings';
-const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'nvidia/llama-nemotron-embed-vl-1b-v2:free';
+const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'baai/bge-m3';
 
 async function getEmbedding(text) {
   const r = await fetch(EMBEDDING_URL, {
@@ -163,8 +163,7 @@ async function getEmbedding(text) {
   const j = await r.json();
   const emb = j.data?.[0]?.embedding;
   if (!emb) return null;
-  // 截断到2000维（Supabase pgvector上限）
-  return emb.length > 2000 ? emb.slice(0, 2000) : emb;
+  return emb;
 }
 
 app.get('/api/memories/search', async (req, res) => {
