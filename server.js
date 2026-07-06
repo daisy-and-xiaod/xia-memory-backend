@@ -152,7 +152,7 @@ app.get('/api/memories', async (req, res) => {
 // ============================================
 const EMBEDDING_KEY = process.env.EMBEDDING_KEY || '';
 const EMBEDDING_URL = process.env.EMBEDDING_URL || 'https://openrouter.ai/api/v1/embeddings';
-const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'openai/text-embedding-3-small';
+const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'nvidia/llama-nemotron-embed-vl-1b-v2:free';
 
 async function getEmbedding(text) {
   const r = await fetch(EMBEDDING_URL, {
