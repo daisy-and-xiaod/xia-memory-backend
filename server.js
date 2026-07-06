@@ -150,18 +150,19 @@ app.get('/api/memories', async (req, res) => {
 // 语义搜索
 // GET /api/memories/search?semantic=说到声音就想到ElevenLabs&limit=10
 // ============================================
-const EMBEDDING_KEY = process.env.EMBEDDING_KEY || '';
-const EMBEDDING_URL = process.env.EMBEDDING_URL || 'https://openrouter.ai/api/v1/embeddings';
-const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'baai/bge-m3';
+const EMBEDDING_KEY = process.env.CF_API_TOKEN || '';
+const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || '';
+const EMBEDDING_MODEL = '@cf/baai/bge-m3';
 
 async function getEmbedding(text) {
-  const r = await fetch(EMBEDDING_URL, {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${EMBEDDING_MODEL}`;
+  const r = await fetch(url, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${EMBEDDING_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: EMBEDDING_MODEL, input: text })
+    body: JSON.stringify({ text: text.slice(0, 4000) })
   });
   const j = await r.json();
-  const emb = j.data?.[0]?.embedding;
+  const emb = j.result?.data?.[0];
   if (!emb) return null;
   return emb;
 }
