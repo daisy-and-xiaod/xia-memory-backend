@@ -161,7 +161,10 @@ async function getEmbedding(text) {
     body: JSON.stringify({ model: EMBEDDING_MODEL, input: text })
   });
   const j = await r.json();
-  return j.data?.[0]?.embedding || null;
+  const emb = j.data?.[0]?.embedding;
+  if (!emb) return null;
+  // 截断到2000维（Supabase pgvector上限）
+  return emb.length > 2000 ? emb.slice(0, 2000) : emb;
 }
 
 app.get('/api/memories/search', async (req, res) => {
