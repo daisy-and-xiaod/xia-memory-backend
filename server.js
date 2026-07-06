@@ -32,7 +32,7 @@ const app = express();
 
 // ---- 基础中间件 ----
 app.use(cors());
-app.use(express.json({ limit: '10kb' }));
+app.use(express.json({ limit: '50kb' }));
 
 // ---- 鉴权中间件 ----
 function auth(req, res, next) {
@@ -142,6 +142,55 @@ app.get('/api/memories', async (req, res) => {
     res.json({ data: data || [], total: count, limit: limitNum, offset: offsetNum });
   } catch (err) {
     console.error('GET /api/memories error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// 语义搜索
+// GET /api/memories/search?semantic=说到声音就想到ElevenLabs&limit=10
+// ============================================
+const EMBEDDING_KEY = process.env.EMBEDDING_KEY || '';
+const EMBEDDING_URL = process.env.EMBEDDING_URL || 'https://openrouter.ai/api/v1/embeddings';
+const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'openai/text-embedding-3-small';
+
+async function getEmbedding(text) {
+  const r = await fetch(EMBEDDING_URL, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${EMBEDDING_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: EMBEDDING_MODEL, input: text })
+  });
+  const j = await r.json();
+  return j.data?.[0]?.embedding || null;
+}
+
+app.get('/api/memories/search', async (req, res) => {
+  try {
+    const { semantic, limit = '10' } = req.query;
+
+    if (!semantic) {
+      return res.status(400).json({ error: '需要 semantic 参数' });
+    }
+
+    if (!EMBEDDING_KEY) {
+      return res.status(500).json({ error: '未配置 EMBEDDING_KEY 环境变量' });
+    }
+
+    const embedding = await getEmbedding(semantic);
+    if (!embedding) {
+      return res.status(500).json({ error: '生成 embedding 失败' });
+    }
+
+    const { data, error } = await supabase.rpc('match_memories', {
+      query_embedding: embedding,
+      match_threshold: 0.3,
+      match_count: parseInt(limit) || 10
+    });
+
+    if (error) throw error;
+    res.json({ data: data || [], query: semantic, total: (data || []).length });
+  } catch (err) {
+    console.error('Semantic search error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
