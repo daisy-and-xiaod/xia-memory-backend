@@ -119,9 +119,9 @@ async function searchSupabase(supabase, getEmbedding, { query, date, limit, snip
           results = filtered.slice(0, limitNum);
           method = `tag:${date.trim()}+keyword:"${query.trim()}"`;
         }
-        // If keyword filters out everything, fall through to keyword-only search
-      }
-      if (results.length === 0) {
+        // If keyword filters out everything, don't fall back to unfiltered tag
+        // results — fall through to keyword-only search below instead
+      } else {
         results = data;
         method = `tag:${date.trim()}`;
       }
