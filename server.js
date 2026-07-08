@@ -371,9 +371,19 @@ app.delete('/api/memories/:id', async (req, res) => {
       cfAccountId: CF_ACCOUNT_ID,
       cfApiToken: EMBEDDING_KEY,
     });
+    console.log('MCP mount success');
   } catch (err) {
-    console.error('MCP mount error:', err.message);
+    console.error('MCP mount error:', err.message, err.stack);
+    // 即使 MCP 失败也注册一个 fallback
+    app.get('/mcp', (_req, res) => {
+      res.json({ error: 'MCP not available', detail: err.message });
+    });
   }
+
+  // Debug: verify MCP is registered
+  app.get('/debug', (_req, res) => {
+    res.json({ ok: true, mcp_loaded: true });
+  });
 
   // 404（在所有路由之后）
   app.use((_req, res) => {
