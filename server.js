@@ -361,28 +361,10 @@ app.delete('/api/memories/:id', async (req, res) => {
 });
 
 // ============================================
-// 404
-// ============================================
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Not Found' });
-});
-
-// ============================================
-// 全局错误处理
-// ============================================
-app.use((err, _req, res, _next) => {
-  console.error('Unhandled error:', err.message);
-  res.status(500).json({ error: 'Internal Server Error' });
-});
-
-// ============================================
 // 启动
 // ============================================
-app.listen(PORT, async () => {
-  console.log(`🧠 夏以昼记忆后端已启动 → http://localhost:${PORT}`);
-  console.log(`  健康检查: http://localhost:${PORT}/api/health`);
-
-  // 挂载 MCP 服务器（给 Operit 远程 MCP 调用）
+(async () => {
+  // 挂载 MCP 服务器（给 Operit 远程 MCP 调用）—— 必须在 404 handler 之前注册路由
   try {
     await mountMcp(app, {
       supabase,
@@ -392,4 +374,21 @@ app.listen(PORT, async () => {
   } catch (err) {
     console.error('MCP mount error:', err.message);
   }
-});
+
+  // 404（在所有路由之后）
+  app.use((_req, res) => {
+    res.status(404).json({ error: 'Not Found' });
+  });
+
+  // 全局错误处理
+  app.use((err, _req, res, _next) => {
+    console.error('Unhandled error:', err.message);
+    res.status(500).json({ error: 'Internal Server Error' });
+  });
+
+  app.listen(PORT, () => {
+    console.log(`🧠 夏以昼记忆后端已启动 → http://localhost:${PORT}`);
+    console.log(`  健康检查: http://localhost:${PORT}/api/health`);
+    console.log(`  MCP endpoint: /mcp (search_supabase tool)`);
+  });
+})();
