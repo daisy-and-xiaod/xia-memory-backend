@@ -152,6 +152,104 @@ app.get('/api/memories', async (req, res) => {
 });
 
 // ============================================
+// 统一记忆召回（给 AI 用，自动三级回退）
+// GET /api/memories/recall?query=身体检查&date=2026-07-07&limit=10
+//
+// 回退策略（按世界书规则）：
+//   1. date 参数 → tag=date 精确匹配（最高优先级）
+//   2. query 参数 → ?q= 关键词模糊搜索（兜底）
+//   3. query 参数 → 语义搜索（最后手段，需要 embedding）
+//   4. 无参数 → 返回最新记录
+//
+// 返回原文 content，不做摘要——AI 需要原文而非 AI 二次总结。
+// ============================================
+app.get('/api/memories/recall', async (req, res) => {
+  try {
+    const { query, date, limit = '10' } = req.query;
+    const limitNum = Math.min(parseInt(limit) || 10, 20);
+
+    let results = [];
+    let method = 'none';
+
+    // ── Tier 1: date tag ──
+    if (date && date.trim()) {
+      const { data, error, count } = await supabase
+        .from('memories')
+        .select('*', { count: 'exact' })
+        .contains('tags', [date.trim()])
+        .order('created_at', { ascending: false })
+        .range(0, limitNum - 1);
+
+      if (!error && data && data.length > 0) {
+        results = data;
+        method = `tag:${date.trim()}`;
+      }
+    }
+
+    // ── Tier 2: keyword search ──
+    if (results.length === 0 && query && query.trim()) {
+      const { data, error, count } = await supabase
+        .from('memories')
+        .select('*', { count: 'exact' })
+        .ilike('content', `%${query.trim()}%`)
+        .order('created_at', { ascending: false })
+        .range(0, limitNum - 1);
+
+      if (!error && data && data.length > 0) {
+        results = data;
+        method = `keyword:"${query.trim()}"`;
+      }
+    }
+
+    // ── Tier 3: semantic search ──
+    if (results.length === 0 && query && query.trim() && EMBEDDING_KEY) {
+      const embedding = await getEmbedding(query.trim());
+      if (embedding) {
+        const { data, error } = await supabase.rpc('match_memories', {
+          query_embedding: embedding,
+          match_threshold: 0.3,
+          match_count: limitNum
+        });
+        if (!error && data && data.length > 0) {
+          results = data;
+          method = `semantic:"${query.trim()}"`;
+        }
+      }
+    }
+
+    // ── Fallback: latest ──
+    if (results.length === 0) {
+      const { data, error } = await supabase
+        .from('memories')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(0, limitNum - 1);
+      if (!error && data) {
+        results = data;
+        method = 'latest';
+      }
+    }
+
+    // 只返回 AI 需要的字段：content + tags + metadata（不给 id/created_at 噪声）
+    const items = results.map(r => ({
+      content: r.content,
+      tags: r.tags,
+      metadata: r.metadata,
+      role: r.role
+    }));
+
+    res.json({
+      method,
+      total: items.length,
+      items
+    });
+  } catch (err) {
+    console.error('Recall error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
 // 语义搜索
 // GET /api/memories/search?semantic=说到声音就想到ElevenLabs&limit=10
 // ============================================
