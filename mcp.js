@@ -101,21 +101,34 @@ async function searchSupabase(supabase, getEmbedding, { query, date, limit, snip
   let results = [];
   let method = 'none';
 
-  // Tier 1: date tag
+  // Tier 1: date tag (with optional keyword filter)
   if (date && date.trim()) {
-    const { data, error } = await supabase
+    let q = supabase
       .from('memories')
       .select('*')
       .contains('tags', [date.trim()])
       .order('created_at', { ascending: false })
       .range(0, limitNum - 1);
+    const { data, error } = await q;
     if (!error && data && data.length > 0) {
-      results = data;
-      method = `tag:${date.trim()}`;
+      // If query also provided, filter to only chunks containing keyword
+      if (query && query.trim()) {
+        const kw = query.trim().toLowerCase();
+        const filtered = data.filter((r) => r.content.toLowerCase().includes(kw));
+        if (filtered.length > 0) {
+          results = filtered.slice(0, limitNum);
+          method = `tag:${date.trim()}+keyword:"${query.trim()}"`;
+        }
+        // If keyword filters out everything, fall through to keyword-only search
+      }
+      if (results.length === 0) {
+        results = data;
+        method = `tag:${date.trim()}`;
+      }
     }
   }
 
-  // Tier 2: keyword
+  // Tier 2: keyword (only if no results from tag+keyword)
   if (results.length === 0 && query && query.trim()) {
     const { data, error } = await supabase
       .from('memories')
