@@ -39,6 +39,10 @@ const TOOLS = [
           type: 'number',
           description: '返回条数，默认10，最大20',
         },
+        snippet: {
+          type: 'number',
+          description: '关键词上下文截取长度（字符）。设为 300 则每个关键词命中处返回前后各300字，避免读35KB大chunk。不设或为0则返回全文。',
+        },
       },
     },
   },
@@ -54,9 +58,46 @@ function sseSend(data) {
   }
 }
 
+// ── Content snippet extraction ──
+function extractSnippets(content, keyword, snippetSize = 300) {
+  if (!keyword || !keyword.trim()) return null;
+  const lower = content.toLowerCase();
+  const kw = keyword.trim().toLowerCase();
+  const positions = [];
+  let idx = 0;
+  while ((idx = lower.indexOf(kw, idx)) !== -1) {
+    positions.push(idx);
+    idx += kw.length;
+  }
+  if (positions.length === 0) return null;
+
+  // Take first 3 matches, extract context around each
+  const snippets = positions.slice(0, 3).map((pos) => {
+    const start = Math.max(0, pos - snippetSize);
+    const end = Math.min(content.length, pos + kw.length + snippetSize);
+    let text = content.slice(start, end);
+    if (start > 0) text = '…' + text;
+    if (end < content.length) text = text + '…';
+    return text;
+  });
+  return snippets;
+}
+
+function formatResult(item, i, method, query, snippetSize) {
+  const snippets = query ? extractSnippets(item.content, query, snippetSize) : null;
+  let header = `--- 记忆 ${i + 1} ---\n标签: ${item.tags.join(', ')}`;
+
+  if (snippets) {
+    header += `\n关键词命中 ${snippets.length} 处（原文 ${item.content.length} 字符）`;
+    return header + '\n' + snippets.map((s, j) => `[命中 ${j + 1}]\n${s}`).join('\n\n') + '\n';
+  }
+  return header + '\n' + item.content + '\n';
+}
+
 // ── Search logic ──
-async function searchSupabase(supabase, getEmbedding, { query, date, limit }) {
+async function searchSupabase(supabase, getEmbedding, { query, date, limit, snippet }) {
   const limitNum = Math.min(parseInt(limit) || 10, 20);
+  const snippetSize = parseInt(snippet) || 0; // 0 = full content
   let results = [];
   let method = 'none';
 
@@ -164,8 +205,8 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
         throw { code: -32601, message: `Unknown tool: ${name}` };
       }
 
-      const { query, date, limit } = args || {};
-      const { method, results } = await searchSupabase(supabase, getEmbedding, { query, date, limit });
+      const { query, date, limit, snippet } = args || {};
+      const { method, results } = await searchSupabase(supabase, getEmbedding, { query, date, limit, snippet });
 
       if (results.length === 0) {
         return {
@@ -173,19 +214,10 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
         };
       }
 
-      const items = results.map((r) => ({
-        content: r.content,
-        tags: r.tags,
-        role: r.role,
-      }));
-
       const text = [
         `搜索方式: ${method}`,
-        `找到 ${items.length} 条记忆:\n`,
-        ...items.map(
-          (item, i) =>
-            `--- 记忆 ${i + 1} ---\n标签: ${item.tags.join(', ')}\n${item.content}\n`
-        ),
+        `找到 ${results.length} 条记忆:\n`,
+        ...results.map((item, i) => formatResult(item, i, method, query, snippet || 0)),
       ].join('\n');
 
       return { content: [{ type: 'text', text }] };
