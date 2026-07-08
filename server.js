@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const rateLimit = require('express-rate-limit');
+const { mountMcp } = require('./mcp.js');
 
 // ============================================
 // 环境变量校验
@@ -377,7 +378,18 @@ app.use((err, _req, res, _next) => {
 // ============================================
 // 启动
 // ============================================
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🧠 夏以昼记忆后端已启动 → http://localhost:${PORT}`);
   console.log(`  健康检查: http://localhost:${PORT}/api/health`);
+
+  // 挂载 MCP 服务器（给 Operit 远程 MCP 调用）
+  try {
+    await mountMcp(app, {
+      supabase,
+      cfAccountId: CF_ACCOUNT_ID,
+      cfApiToken: EMBEDDING_KEY,
+    });
+  } catch (err) {
+    console.error('MCP mount error:', err.message);
+  }
 });
