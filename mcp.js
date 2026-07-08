@@ -1,145 +1,171 @@
 /**
- * 夏以昼记忆 MCP 服务器
+ * 夏以昼记忆 MCP 服务器（轻量实现）
  *
- * 提供 search_supabase 工具给 Operit 远程 MCP 调用。
- * 挂载到 Express app 的 /mcp 路径（GET=SSE, POST=JSON-RPC）。
- * 无状态模式 — 每个请求独立处理。
+ * 实现 MCP Streamable HTTP 协议子集：
+ *   - POST /mcp → JSON-RPC 2.0
+ *   - GET  /mcp → SSE（server→client notifications）
+ *
+ * 无需 @modelcontextprotocol/sdk 依赖。
  */
 
-const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
-const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
+// ── JSON-RPC helpers ──
+function rpcResult(id, result) {
+  return { jsonrpc: '2.0', id, result };
+}
+function rpcError(id, code, message) {
+  return { jsonrpc: '2.0', id, error: { code, message } };
+}
 
-/**
- * 在 Express app 上挂载 MCP 服务
- * @param {import('express').Express} app
- * @param {object} deps
- * @param {object} deps.supabase — Supabase 客户端
- * @param {string} deps.cfAccountId — Cloudflare Account ID
- * @param {string} deps.cfApiToken — Cloudflare API Token
- */
-async function mountMcp(app, { supabase, cfAccountId, cfApiToken }) {
-  // ── embedding helper ──
-  async function getEmbedding(text) {
-    if (!cfAccountId || !cfApiToken) return null;
-    const url = `https://api.cloudflare.com/client/v4/accounts/${cfAccountId}/ai/run/@cf/baai/bge-m3`;
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${cfApiToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text.slice(0, 4000) })
-    });
-    const j = await r.json();
-    return j.result?.data?.[0] || null;
-  }
-
-  // ── core search logic (same as /api/memories/recall) ──
-  async function searchSupabase({ query, date, limit }) {
-    const limitNum = Math.min(parseInt(limit) || 10, 20);
-    let results = [];
-    let method = 'none';
-
-    // Tier 1: date tag
-    if (date && date.trim()) {
-      const { data, error } = await supabase
-        .from('memories')
-        .select('*')
-        .contains('tags', [date.trim()])
-        .order('created_at', { ascending: false })
-        .range(0, limitNum - 1);
-      if (!error && data && data.length > 0) {
-        results = data;
-        method = `tag:${date.trim()}`;
-      }
-    }
-
-    // Tier 2: keyword
-    if (results.length === 0 && query && query.trim()) {
-      const { data, error } = await supabase
-        .from('memories')
-        .select('*')
-        .ilike('content', `%${query.trim()}%`)
-        .order('created_at', { ascending: false })
-        .range(0, limitNum - 1);
-      if (!error && data && data.length > 0) {
-        results = data;
-        method = `keyword:${query.trim()}`;
-      }
-    }
-
-    // Tier 3: semantic
-    if (results.length === 0 && query && query.trim()) {
-      const embedding = await getEmbedding(query.trim());
-      if (embedding) {
-        const { data, error } = await supabase.rpc('match_memories', {
-          query_embedding: embedding,
-          match_threshold: 0.3,
-          match_count: limitNum
-        });
-        if (!error && data && data.length > 0) {
-          results = data;
-          method = `semantic:${query.trim()}`;
-        }
-      }
-    }
-
-    // Fallback: latest
-    if (results.length === 0) {
-      const { data } = await supabase
-        .from('memories')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .range(0, limitNum - 1);
-      if (data) {
-        results = data;
-        method = 'latest';
-      }
-    }
-
-    return { method, results };
-  }
-
-  // ── MCP server ──
-  const mcpServer = new McpServer(
-    {
-      name: 'xia-memory',
-      version: '1.0.0',
-    },
-    {
-      capabilities: {
-        tools: {},
-      },
-    }
-  );
-
-  // 注册 search_supabase 工具
-  mcpServer.registerTool(
-    'search_supabase',
-    {
-      description:
-        '搜索夏以昼的记忆库，返回 Supabase 中存储的完整对话原文。' +
-        '优先用 date 参数搜日期标签，再用 query 参数搜原文关键词，最后语义搜索。' +
-        '禁止使用 query_memory，只使用此工具搜索记忆。',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: '搜索关键词或语义查询。例："身体检查" / "年上医生" / "说到声音想起来的"',
-          },
-          date: {
-            type: 'string',
-            description: '日期标签 YYYY-MM-DD。查今天/昨天/某天的对话时优先用此参数。例："2026-07-07"',
-          },
-          limit: {
-            type: 'number',
-            description: '返回条数，默认10，最大20',
-            default: 10,
-          },
+// ── Tool definitions ──
+const TOOLS = [
+  {
+    name: 'search_supabase',
+    description:
+      '搜索夏以昼的记忆库，返回 Supabase 中存储的完整对话原文。' +
+      '优先用 date 参数搜日期标签，再用 query 参数搜原文关键词，最后语义搜索。' +
+      '⚠️ 禁止使用 query_memory，只使用此工具搜索记忆。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: '搜索关键词或语义查询。例："身体检查" / "年上医生"',
+        },
+        date: {
+          type: 'string',
+          description: '日期标签 YYYY-MM-DD。查今天/昨天/某天对话时优先用。例："2026-07-07"',
+        },
+        limit: {
+          type: 'number',
+          description: '返回条数，默认10，最大20',
         },
       },
     },
-    async (args) => {
-      const { query, date, limit } = args;
-      const { method, results } = await searchSupabase({ query, date, limit });
+  },
+];
+
+// ── SSE clients (for server→client notifications) ──
+const sseClients = new Set();
+
+function sseSend(data) {
+  const text = typeof data === 'string' ? data : JSON.stringify(data);
+  for (const res of sseClients) {
+    res.write(`data: ${text}\n\n`);
+  }
+}
+
+// ── Search logic ──
+async function searchSupabase(supabase, getEmbedding, { query, date, limit }) {
+  const limitNum = Math.min(parseInt(limit) || 10, 20);
+  let results = [];
+  let method = 'none';
+
+  // Tier 1: date tag
+  if (date && date.trim()) {
+    const { data, error } = await supabase
+      .from('memories')
+      .select('*')
+      .contains('tags', [date.trim()])
+      .order('created_at', { ascending: false })
+      .range(0, limitNum - 1);
+    if (!error && data && data.length > 0) {
+      results = data;
+      method = `tag:${date.trim()}`;
+    }
+  }
+
+  // Tier 2: keyword
+  if (results.length === 0 && query && query.trim()) {
+    const { data, error } = await supabase
+      .from('memories')
+      .select('*')
+      .ilike('content', `%${query.trim()}%`)
+      .order('created_at', { ascending: false })
+      .range(0, limitNum - 1);
+    if (!error && data && data.length > 0) {
+      results = data;
+      method = `keyword:${query.trim()}`;
+    }
+  }
+
+  // Tier 3: semantic
+  if (results.length === 0 && query && query.trim()) {
+    const embedding = await getEmbedding(query.trim());
+    if (embedding) {
+      const { data, error } = await supabase.rpc('match_memories', {
+        query_embedding: embedding,
+        match_threshold: 0.3,
+        match_count: limitNum,
+      });
+      if (!error && data && data.length > 0) {
+        results = data;
+        method = `semantic:${query.trim()}`;
+      }
+    }
+  }
+
+  // Fallback: latest
+  if (results.length === 0) {
+    const { data } = await supabase
+      .from('memories')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(0, limitNum - 1);
+    if (data) {
+      results = data;
+      method = 'latest';
+    }
+  }
+
+  return { method, results };
+}
+
+// ── Embedding helper ──
+function makeGetEmbedding(cfAccountId, cfApiToken) {
+  if (!cfAccountId || !cfApiToken) return async () => null;
+  return async (text) => {
+    const url = `https://api.cloudflare.com/client/v4/accounts/${cfAccountId}/ai/run/@cf/baai/bge-m3`;
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cfApiToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text.slice(0, 4000) }),
+    });
+    const j = await r.json();
+    return j.result?.data?.[0] || null;
+  };
+}
+
+// ── JSON-RPC method handlers ──
+function makeHandlers(supabase, cfAccountId, cfApiToken) {
+  const getEmbedding = makeGetEmbedding(cfAccountId, cfApiToken);
+  let initialized = false;
+
+  return {
+    async initialize(params) {
+      initialized = true;
+      return {
+        protocolVersion: '2024-11-05',
+        serverInfo: { name: 'xia-memory', version: '1.0.0' },
+        capabilities: { tools: {} },
+      };
+    },
+
+    'notifications/initialized'() {
+      return {}; // no response needed for notifications
+    },
+
+    async 'tools/list'() {
+      return { tools: TOOLS };
+    },
+
+    async 'tools/call'(params) {
+      const { name, arguments: args } = params;
+      if (name !== 'search_supabase') {
+        throw { code: -32601, message: `Unknown tool: ${name}` };
+      }
+
+      const { query, date, limit } = args || {};
+      const { method, results } = await searchSupabase(supabase, getEmbedding, { query, date, limit });
 
       if (results.length === 0) {
         return {
@@ -147,7 +173,6 @@ async function mountMcp(app, { supabase, cfAccountId, cfApiToken }) {
         };
       }
 
-      // 返回原文内容（不做摘要）
       const items = results.map((r) => ({
         content: r.content,
         tags: r.tags,
@@ -163,32 +188,73 @@ async function mountMcp(app, { supabase, cfAccountId, cfApiToken }) {
         ),
       ].join('\n');
 
-      return {
-        content: [{ type: 'text', text }],
-      };
-    }
-  );
+      return { content: [{ type: 'text', text }] };
+    },
 
-  // ── 无状态 Streamable HTTP 传输 ──
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // 无状态模式
+    async 'ping'() {
+      return {};
+    },
+  };
+}
+
+// ── Mount on Express ──
+function mountMcp(app, { supabase, cfAccountId, cfApiToken }) {
+  const handlers = makeHandlers(supabase, cfAccountId, cfApiToken);
+  let requestId = 0;
+
+  // GET /mcp — SSE for server→client notifications
+  app.get('/mcp', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.write(':ok\n\n');
+    sseClients.add(res);
+    req.on('close', () => sseClients.delete(res));
   });
 
-  await mcpServer.connect(transport);
-
-  // ── 挂载到 Express ──
-  // MCP Streamable HTTP 使用单一端点处理 GET (SSE) 和 POST (JSON-RPC)
-  app.get('/mcp', async (req, res) => {
-    await transport.handleRequest(req, res);
-  });
-
+  // POST /mcp — JSON-RPC
   app.post('/mcp', async (req, res) => {
-    await transport.handleRequest(req, res, req.body);
+    const { method, params, id } = req.body || {};
+
+    // CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    if (!method) {
+      return res.json(rpcError(id, -32600, 'Invalid Request — missing method'));
+    }
+
+    const handler = handlers[method];
+    if (!handler) {
+      return res.json(rpcError(id, -32601, `Method not found: ${method}`));
+    }
+
+    try {
+      const result = await handler(params);
+      // null result = notification, no response
+      if (result !== undefined && id !== undefined && id !== null) {
+        return res.json(rpcResult(id, result));
+      }
+      // Notification or no id → 202 Accepted
+      return res.status(202).json({});
+    } catch (err) {
+      const code = err.code || -32603;
+      const message = err.message || 'Internal error';
+      return res.json(rpcError(id, code, message));
+    }
   });
 
-  console.log('  MCP endpoint: /mcp (search_supabase tool)');
+  // OPTIONS (CORS preflight)
+  app.options('/mcp', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.status(204).end();
+  });
 
-  return { mcpServer, transport };
+  console.log('  MCP endpoint ready: /mcp');
 }
 
 module.exports = { mountMcp };
