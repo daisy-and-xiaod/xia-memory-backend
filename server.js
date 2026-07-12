@@ -172,22 +172,27 @@ app.get('/api/memories/recall', async (req, res) => {
     let results = [];
     let method = 'none';
 
-    // ── Tier 1: date tag ──
+    // ── Tier 1: date tag (with optional keyword filter at DB level) ──
     if (date && date.trim()) {
-      const { data, error, count } = await supabase
+      let q = supabase
         .from('memories')
         .select('*', { count: 'exact' })
-        .contains('tags', [date.trim()])
-        .order('created_at', { ascending: false })
-        .range(0, limitNum - 1);
+        .contains('tags', [date.trim()]);
+      if (query && query.trim()) {
+        q = q.ilike('content', `%${query.trim()}%`);
+      }
+      q = q.order('created_at', { ascending: false }).range(0, limitNum - 1);
+      const { data, error } = await q;
 
       if (!error && data && data.length > 0) {
         results = data;
-        method = `tag:${date.trim()}`;
+        method = query && query.trim()
+          ? `tag:${date.trim()}+keyword:"${query.trim()}"`
+          : `tag:${date.trim()}`;
       }
     }
 
-    // ── Tier 2: keyword search ──
+    // ── Tier 2: keyword search (only if no date or date had no results) ──
     if (results.length === 0 && query && query.trim()) {
       const { data, error, count } = await supabase
         .from('memories')

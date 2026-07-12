@@ -119,29 +119,23 @@ async function searchSupabase(supabase, getEmbedding, { query, date, limit, snip
   let method = 'none';
 
   // Tier 1: date tag (with optional keyword filter)
+  // Both filters pushed to Supabase — avoids JS-side filtering that only
+  // sees the first limitNum rows and misses hits deeper in the date bucket.
   if (date && date.trim()) {
     let q = supabase
       .from('memories')
       .select('*')
-      .contains('tags', [date.trim()])
-      .order('created_at', { ascending: false })
-      .range(0, limitNum - 1);
+      .contains('tags', [date.trim()]);
+    if (query && query.trim()) {
+      q = q.ilike('content', `%${query.trim()}%`);
+    }
+    q = q.order('created_at', { ascending: false }).range(0, limitNum - 1);
     const { data, error } = await q;
     if (!error && data && data.length > 0) {
-      // If query also provided, filter to only chunks containing keyword
-      if (query && query.trim()) {
-        const kw = query.trim().toLowerCase();
-        const filtered = data.filter((r) => r.content.toLowerCase().includes(kw));
-        if (filtered.length > 0) {
-          results = filtered.slice(0, limitNum);
-          method = `tag:${date.trim()}+keyword:"${query.trim()}"`;
-        }
-        // If keyword filters out everything, don't fall back to unfiltered tag
-        // results — fall through to keyword-only search below instead
-      } else {
-        results = data;
-        method = `tag:${date.trim()}`;
-      }
+      results = data;
+      method = query && query.trim()
+        ? `tag:${date.trim()}+keyword:"${query.trim()}"`
+        : `tag:${date.trim()}`;
     }
   }
 
