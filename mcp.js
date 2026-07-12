@@ -83,6 +83,23 @@ function extractSnippets(content, keyword, snippetSize = 300) {
   return snippets;
 }
 
+// ── Date distribution summary ──
+function buildDateSummary(results) {
+  const dateCount = {};
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  for (const r of results) {
+    for (const tag of (r.tags || [])) {
+      if (datePattern.test(tag)) {
+        dateCount[tag] = (dateCount[tag] || 0) + 1;
+      }
+    }
+  }
+  const dates = Object.keys(dateCount).sort();
+  if (dates.length === 0) return '';
+  const parts = dates.map(d => `${d.slice(5)}(${dateCount[d]})`);
+  return `命中 ${results.length} 条，分布日期：${parts.join(', ')}`;
+}
+
 function formatResult(item, i, method, query, snippetSize) {
   const snippets = query ? extractSnippets(item.content, query, snippetSize) : null;
   let header = `--- 记忆 ${i + 1} ---\n标签: ${item.tags.join(', ')}`;
@@ -97,7 +114,7 @@ function formatResult(item, i, method, query, snippetSize) {
 // ── Search logic ──
 async function searchSupabase(supabase, getEmbedding, { query, date, limit, snippet }) {
   const limitNum = Math.min(parseInt(limit) || 10, 20);
-  const snippetSize = parseInt(snippet) || 0; // 0 = full content
+  const snippetSize = (snippet !== undefined && snippet !== null && snippet !== '') ? parseInt(snippet) : 400; // default 400 chars context
   let results = [];
   let method = 'none';
 
@@ -219,6 +236,7 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
       }
 
       const { query, date, limit, snippet } = args || {};
+      const snippetSize = (snippet !== undefined && snippet !== null && snippet !== '') ? parseInt(snippet) : 400;
       const { method, results } = await searchSupabase(supabase, getEmbedding, { query, date, limit, snippet });
 
       if (results.length === 0) {
@@ -227,10 +245,12 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
         };
       }
 
+      const dateSummary = buildDateSummary(results);
       const text = [
         `搜索方式: ${method}`,
-        `找到 ${results.length} 条记忆:\n`,
-        ...results.map((item, i) => formatResult(item, i, method, query, snippet || 0)),
+        dateSummary || `找到 ${results.length} 条记忆:`,
+        '',
+        ...results.map((item, i) => formatResult(item, i, method, query, snippetSize)),
       ].join('\n');
 
       return { content: [{ type: 'text', text }] };
