@@ -366,6 +366,48 @@ app.delete('/api/memories/:id', async (req, res) => {
 });
 
 // ============================================
+// 每日事件时间线
+// POST /api/outline  — 保存/更新某天的时间线
+// GET  /api/outline/recent — 取最近 2 天的（给世界书 daily_outline.txt 用）
+// ============================================
+app.post('/api/outline', async (req, res) => {
+  try {
+    const { date, outline } = req.body;
+    if (!date || !outline) {
+      return res.status(400).json({ error: '需要 date 和 outline' });
+    }
+
+    const { data, error } = await supabase
+      .from('daily_outlines')
+      .upsert({ date, outline }, { onConflict: 'date' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(data);
+  } catch (err) {
+    console.error('POST /api/outline error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/outline/recent', async (_req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('daily_outlines')
+      .select('date, outline')
+      .order('date', { ascending: false })
+      .limit(2);
+
+    if (error) throw error;
+    res.json({ outlines: data || [] });
+  } catch (err) {
+    console.error('GET /api/outline/recent error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
 // 启动
 // ============================================
 (async () => {
