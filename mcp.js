@@ -236,16 +236,31 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
       const snippetSize = (snippet !== undefined && snippet !== null && snippet !== '') ? parseInt(snippet) : 400;
       const { method, results } = await searchSupabase(supabase, getEmbedding, { query, date, limit, snippet });
 
+      // Look up outline for the searched date (if date specified)
+      let outlineText = '';
+      if (date && date.trim()) {
+        const { data: outlineData } = await supabase
+          .from('daily_outlines')
+          .select('outline')
+          .eq('date', date.trim())
+          .maybeSingle();
+        if (outlineData?.outline) {
+          outlineText = outlineData.outline;
+        }
+      }
+
       if (results.length === 0) {
-        return {
-          content: [{ type: 'text', text: '记忆库中未找到相关记录。' }],
-        };
+        let msg = '记忆库中未找到相关记录。';
+        if (outlineText) msg += '\n\n但该日有大纲：\n' + outlineText;
+        return { content: [{ type: 'text', text: msg }] };
       }
 
       const dateSummary = buildDateSummary(results);
-      const text = [
-        `搜索方式: ${method}`,
-        dateSummary || `找到 ${results.length} 条记忆:`,
+      const parts = [];
+      if (outlineText) parts.push('📅 该日大纲:\n' + outlineText + '\n');
+      parts.push(`搜索方式: ${method}`);
+      parts.push(dateSummary || `找到 ${results.length} 条记忆:`);
+      const text = parts;
         '',
         ...results.map((item, i) => formatResult(item, i, method, query, snippetSize)),
       ].join('\n');
