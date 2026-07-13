@@ -37,7 +37,7 @@ const TOOLS = [
         },
         limit: {
           type: 'number',
-          description: '返回条数，默认10，最大20',
+          description: '返回条数，默认10，最大20。搜具体关键词但没命中时，先检查limit是否太小（数据量大时旧记录可能排在后面），加大limit或去掉date只靠query搜。',
         },
         snippet: {
           type: 'number',
@@ -129,12 +129,15 @@ async function searchSupabase(supabase, getEmbedding, { query, date, limit, snip
     if (query && query.trim()) {
       q = q.ilike('content', `%${query.trim()}%`);
     }
-    q = q.order('created_at', { ascending: false }).range(0, limitNum - 1);
+    // tag+keyword: scan up to 100 internally so keyword hits aren't
+    // cut off by a small limit, then return top N.
+    const scanLimit = (query && query.trim()) ? 100 : limitNum;
+    q = q.order('created_at', { ascending: false }).range(0, scanLimit - 1);
     const { data, error } = await q;
     if (!error && data && data.length > 0) {
-      results = data;
+      results = data.slice(0, limitNum);
       method = query && query.trim()
-        ? `tag:${date.trim()}+keyword:"${query.trim()}"`
+        ? `tag:${date.trim()}+keyword:"${query.trim()}"（命中${data.length}条，返回${results.length}条）`
         : `tag:${date.trim()}`;
     }
   }
@@ -146,9 +149,9 @@ async function searchSupabase(supabase, getEmbedding, { query, date, limit, snip
       .select('*')
       .ilike('content', `%${query.trim()}%`)
       .order('created_at', { ascending: false })
-      .range(0, limitNum - 1);
+      .range(0, 99);  // scan up to 100
     if (!error && data && data.length > 0) {
-      results = data;
+      results = data.slice(0, limitNum);
       method = `keyword:${query.trim()}`;
     }
   }

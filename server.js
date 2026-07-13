@@ -181,13 +181,14 @@ app.get('/api/memories/recall', async (req, res) => {
       if (query && query.trim()) {
         q = q.ilike('content', `%${query.trim()}%`);
       }
-      q = q.order('created_at', { ascending: false }).range(0, limitNum - 1);
+      const scanLimit = (query && query.trim()) ? 100 : limitNum;
+      q = q.order('created_at', { ascending: false }).range(0, scanLimit - 1);
       const { data, error } = await q;
 
       if (!error && data && data.length > 0) {
-        results = data;
+        results = data.slice(0, limitNum);
         method = query && query.trim()
-          ? `tag:${date.trim()}+keyword:"${query.trim()}"`
+          ? `tag:${date.trim()}+keyword:"${query.trim()}"（命中${data.length}条，返回${results.length}条）`
           : `tag:${date.trim()}`;
       }
     }
@@ -199,11 +200,11 @@ app.get('/api/memories/recall', async (req, res) => {
         .select('*', { count: 'exact' })
         .ilike('content', `%${query.trim()}%`)
         .order('created_at', { ascending: false })
-        .range(0, limitNum - 1);
+        .range(0, 99);  // scan up to 100
 
       if (!error && data && data.length > 0) {
-        results = data;
-        method = `keyword:"${query.trim()}"`;
+        results = data.slice(0, limitNum);
+        method = `keyword:"${query.trim()}"（命中${data.length}条，返回${results.length}条）`;
       }
     }
 
