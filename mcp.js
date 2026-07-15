@@ -201,7 +201,7 @@ function makeGetEmbedding(cfAccountId, cfApiToken) {
       body: JSON.stringify({ text: text.slice(0, 4000) }),
     });
     const j = await r.json();
-    return j.result?.data?.[0] || null;
+    return (j.result && j.result.data && j.result.data[0]) || null;
   };
 }
 
@@ -250,7 +250,7 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
               res.on('end', () => { try { resolve(JSON.parse(body)); } catch(e) { resolve(null); } });
             }).on('error', () => resolve(null));
           });
-          if (outlineData?.outlines?.[0]?.outline) {
+          if (outlineData && outlineData.outlines && outlineData.outlines[0] && outlineData.outlines[0].outline) {
             outlineText = outlineData.outlines[0].outline;
           }
         } catch(e) {

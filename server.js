@@ -272,7 +272,7 @@ async function getEmbedding(text) {
     body: JSON.stringify({ text: text.slice(0, 4000) })
   });
   const j = await r.json();
-  const emb = j.result?.data?.[0];
+  const emb = (j.result && j.result.data && j.result.data[0]) || null;
   if (!emb) return null;
   return emb;
 }
