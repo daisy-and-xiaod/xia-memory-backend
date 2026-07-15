@@ -303,11 +303,16 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
 }
 
 // ── Mount on Express ──
-// ── Think-block stripper (handles both raw and XML-escaped tags) ──
+// ── Think-block stripper ──
+// Old records have &lt;think&gt;...&lt;/think&gt; (XML-escaped)
+// New records have <think>...</think> (raw, before escape_xml)
+// Strip both forms: tag pairs + their content, then any orphan tags
 function stripThink(text) {
   return text
     .replace(/&lt;think&gt;[\s\S]*?&lt;\/think&gt;/gi, '')
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/&lt;\/?think&gt;?/gi, '')
+    .replace(/<\/?think>/gi, '')
     .trim();
 }
 
