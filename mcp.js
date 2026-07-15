@@ -240,20 +240,17 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
       let outlineText = '';
       if (date && date.trim()) {
         try {
-          const { data: outlineData, error: outlineErr } = await supabase
+          const { data, error } = await supabase
             .from('daily_outlines')
             .select('outline')
             .eq('date', date.trim())
-            .maybeSingle();
-          if (outlineErr) console.error('outline query error:', outlineErr);
-          if (outlineData && outlineData.outline) {
-            outlineText = outlineData.outline;
-            console.error('outline found:', outlineText.length, 'chars for', date.trim());
-          } else {
-            console.error('outline not found for', date.trim(), 'data:', !!outlineData);
+            .limit(1);
+          if (error) console.error('outline query error:', JSON.stringify(error));
+          if (data && data.length > 0 && data[0].outline) {
+            outlineText = data[0].outline;
           }
         } catch(e) {
-          console.error('outline exception:', e.message);
+          console.error('outline exception:', e.message, e.stack);
         }
       }
 
