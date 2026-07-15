@@ -236,14 +236,21 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
       const snippetSize = (snippet !== undefined && snippet !== null && snippet !== '') ? parseInt(snippet) : 400;
       const { method, results } = await searchSupabase(supabase, getEmbedding, { query, date, limit, snippet });
 
-      // Auto-attach daily_outline for the searched date (via HTTP not supabase client)
+      // Auto-attach daily_outline for the searched date
       let outlineText = '';
       if (date && date.trim()) {
         try {
-          const r = await fetch(`http://localhost:${process.env.PORT || 3000}/api/outline/recent?date=${encodeURIComponent(date.trim())}`);
-          const j = await r.json();
-          if (j.outlines && j.outlines.length > 0 && j.outlines[0].outline) {
-            outlineText = j.outlines[0].outline;
+          const http = require('http');
+          const outlineData = await new Promise((resolve) => {
+            const port = process.env.PORT || 3000;
+            http.get(`http://localhost:${port}/api/outline/recent?date=${encodeURIComponent(date.trim())}`, (res) => {
+              let body = '';
+              res.on('data', chunk => body += chunk);
+              res.on('end', () => { try { resolve(JSON.parse(body)); } catch(e) { resolve(null); } });
+            }).on('error', () => resolve(null));
+          });
+          if (outlineData?.outlines?.[0]?.outline) {
+            outlineText = outlineData.outlines[0].outline;
           }
         } catch(e) {
           console.error('outline fetch error:', e.message);
