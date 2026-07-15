@@ -45,6 +45,14 @@ const TOOLS = [
           type: 'number',
           description: '关键词上下文截取长度（字符）。设为 300 则每个关键词命中处返回前后各300字，避免读35KB大chunk。不设或为0则返回全文。',
         },
+        time: {
+          type: 'string',
+          description: '时间锚点 HH:MM。从索引看到某个时间的事件，搜这个时间点前后的原文上下文。配合 context 使用。例："10:22"',
+        },
+        context: {
+          type: 'number',
+          description: '配合 time 使用：返回时间点前后各多少条消息。默认 40，即前后各 40 条共 80 条。上限 50。',
+        },
       },
     },
   },
@@ -234,8 +242,19 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
         throw { code: -32601, message: `Unknown tool: ${name}` };
       }
 
-      const { query, date, limit, snippet } = args || {};
+      const { query, date, limit, snippet, time, context } = args || {};
+      const contextSize = Math.min(parseInt(context) || 40, 50);
       const snippetSize = (snippet !== undefined && snippet !== null && snippet !== '') ? parseInt(snippet) : 400;
+
+      // ── time-based lookup: find messages around a specific HH:MM ──
+      if (time && time.trim() && date && date.trim()) {
+        const timeResult = await searchByTime(supabase, date.trim(), time.trim(), contextSize);
+        if (timeResult) {
+          return { content: [{ type: 'text', text: timeResult }] };
+        }
+        return { content: [{ type: 'text', text: `在 ${date} 未找到时间点 ${time} 附近的对话。` }] };
+      }
+
       const { method, results } = await searchSupabase(supabase, getEmbedding, { query, date, limit, snippet });
 
       // Auto-attach daily_outline for the searched date
@@ -284,6 +303,72 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
 }
 
 // ── Mount on Express ──
+// ── Think-block stripper ──
+function stripThink(text) {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+}
+
+// ── Time-based context search ──
+async function searchByTime(supabase, date, timeStr, contextSize) {
+  const [th, tm] = timeStr.split(':').map(Number);
+  if (isNaN(th) || isNaN(tm)) return null;
+  const targetMin = th * 60 + tm;
+
+  // Pull all records for this date
+  const { data: records } = await supabase
+    .from('memories')
+    .select('content, tags')
+    .contains('tags', [date])
+    .order('created_at', { ascending: true })
+    .range(0, 199);
+
+  if (!records || records.length === 0) return null;
+
+  // Scan for Time:HH:MM markers, find closest match
+  const timeRe = /Time:(\d{2}):(\d{2})/g;
+  let bestChunk = null, bestLine = -1, bestDiff = Infinity;
+
+  for (const rec of records) {
+    const lines = rec.content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      let m;
+      while ((m = timeRe.exec(lines[i])) !== null) {
+        const min = parseInt(m[1]) * 60 + parseInt(m[2]);
+        const diff = Math.abs(min - targetMin);
+        if (diff < bestDiff && diff <= 3) {  // ±3 min window
+          bestDiff = diff;
+          bestChunk = lines;
+          bestLine = i;
+        }
+      }
+    }
+  }
+
+  if (!bestChunk) return null;
+
+  // Extract context: contextSize lines before and after
+  const start = Math.max(0, bestLine - contextSize);
+  const end = Math.min(bestChunk.length, bestLine + contextSize + 1);
+  const contextLines = bestChunk.slice(start, end);
+
+  // Strip think blocks and filter noise
+  const clean = contextLines
+    .map(l => stripThink(l))
+    .filter(l => {
+      const s = l.trim();
+      return s && !s.startsWith('&lt;') && !s.startsWith('{') && !s.startsWith('__');
+    });
+
+  const foundTime = bestChunk[bestLine].match(timeRe);
+  const foundStr = foundTime ? foundTime[0] : timeStr;
+
+  return [
+    `📍 时间锚点: ${foundStr}（±${bestDiff}分钟），前后各 ${contextSize} 条：`,
+    '',
+    ...clean,
+  ].join('\n');
+}
+
 function mountMcp(app, { supabase, cfAccountId, cfApiToken }) {
   const handlers = makeHandlers(supabase, cfAccountId, cfApiToken);
   let requestId = 0;
