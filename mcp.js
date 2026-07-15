@@ -244,7 +244,9 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
         try {
           const outlineData = await new Promise((resolve) => {
             const port = process.env.PORT || 3000;
-            http.get(`http://localhost:${port}/api/outline/recent?date=${encodeURIComponent(date.trim())}`, (res) => {
+            const url = `http://localhost:${port}/api/outline/recent?date=${encodeURIComponent(date.trim())}`;
+            const opts = { headers: { 'x-api-key': process.env.API_SECRET || 'xia-memory-2024' } };
+            http.get(url, opts, (res) => {
               let body = '';
               res.on('data', chunk => body += chunk);
               res.on('end', () => { try { resolve(JSON.parse(body)); } catch(e) { resolve(null); } });
