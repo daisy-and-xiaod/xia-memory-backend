@@ -303,9 +303,12 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
 }
 
 // ── Mount on Express ──
-// ── Think-block stripper ──
+// ── Think-block stripper (handles both raw and XML-escaped tags) ──
 function stripThink(text) {
-  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  return text
+    .replace(/&lt;think&gt;[\s\S]*?&lt;\/think&gt;/gi, '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .trim();
 }
 
 // ── Time-based context search ──
