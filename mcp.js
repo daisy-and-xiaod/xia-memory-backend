@@ -8,6 +8,8 @@
  * 无需 @modelcontextprotocol/sdk 依赖。
  */
 
+const http = require('http');
+
 // ── JSON-RPC helpers ──
 function rpcResult(id, result) {
   return { jsonrpc: '2.0', id, result };
@@ -240,7 +242,6 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
       let outlineText = '';
       if (date && date.trim()) {
         try {
-          const http = require('http');
           const outlineData = await new Promise((resolve) => {
             const port = process.env.PORT || 3000;
             http.get(`http://localhost:${port}/api/outline/recent?date=${encodeURIComponent(date.trim())}`, (res) => {
