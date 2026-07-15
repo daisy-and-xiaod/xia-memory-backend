@@ -236,16 +236,24 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
       const snippetSize = (snippet !== undefined && snippet !== null && snippet !== '') ? parseInt(snippet) : 400;
       const { method, results } = await searchSupabase(supabase, getEmbedding, { query, date, limit, snippet });
 
-      // Look up outline for the searched date (if date specified)
+      // Auto-attach daily_outline for the searched date
       let outlineText = '';
       if (date && date.trim()) {
-        const { data: outlineData } = await supabase
-          .from('daily_outlines')
-          .select('outline')
-          .eq('date', date.trim())
-          .maybeSingle();
-        if (outlineData?.outline) {
-          outlineText = outlineData.outline;
+        try {
+          const { data: outlineData, error: outlineErr } = await supabase
+            .from('daily_outlines')
+            .select('outline')
+            .eq('date', date.trim())
+            .maybeSingle();
+          if (outlineErr) console.error('outline query error:', outlineErr);
+          if (outlineData && outlineData.outline) {
+            outlineText = outlineData.outline;
+            console.error('outline found:', outlineText.length, 'chars for', date.trim());
+          } else {
+            console.error('outline not found for', date.trim(), 'data:', !!outlineData);
+          }
+        } catch(e) {
+          console.error('outline exception:', e.message);
         }
       }
 
