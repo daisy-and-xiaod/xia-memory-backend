@@ -392,14 +392,16 @@ app.post('/api/outline', async (req, res) => {
   }
 });
 
-app.get('/api/outline/recent', async (_req, res) => {
+app.get('/api/outline/recent', async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('daily_outlines')
-      .select('date, outline')
-      .order('date', { ascending: false })
-      .limit(2);
-
+    const { date, days } = req.query;
+    let q = supabase.from('daily_outlines').select('date, outline').order('date', { ascending: false });
+    if (date && date.trim()) {
+      q = q.eq('date', date.trim());
+    } else {
+      q = q.limit(parseInt(days) || 2);
+    }
+    const { data, error } = await q;
     if (error) throw error;
     res.json({ outlines: data || [] });
   } catch (err) {

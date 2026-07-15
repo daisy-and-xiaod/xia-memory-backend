@@ -236,21 +236,17 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
       const snippetSize = (snippet !== undefined && snippet !== null && snippet !== '') ? parseInt(snippet) : 400;
       const { method, results } = await searchSupabase(supabase, getEmbedding, { query, date, limit, snippet });
 
-      // Auto-attach daily_outline for the searched date
+      // Auto-attach daily_outline for the searched date (via HTTP not supabase client)
       let outlineText = '';
       if (date && date.trim()) {
         try {
-          const { data, error } = await supabase
-            .from('daily_outlines')
-            .select('outline')
-            .eq('date', date.trim())
-            .limit(1);
-          if (error) console.error('outline query error:', JSON.stringify(error));
-          if (data && data.length > 0 && data[0].outline) {
-            outlineText = data[0].outline;
+          const r = await fetch(`http://localhost:${process.env.PORT || 3000}/api/outline/recent?date=${encodeURIComponent(date.trim())}`);
+          const j = await r.json();
+          if (j.outlines && j.outlines.length > 0 && j.outlines[0].outline) {
+            outlineText = j.outlines[0].outline;
           }
         } catch(e) {
-          console.error('outline exception:', e.message, e.stack);
+          console.error('outline fetch error:', e.message);
         }
       }
 
