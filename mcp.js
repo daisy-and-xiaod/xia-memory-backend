@@ -304,16 +304,28 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
 
 // ── Mount on Express ──
 // ── Think-block stripper ──
-// Old records have &lt;think&gt;...&lt;/think&gt; (XML-escaped)
-// New records have <think>...</think> (raw, before escape_xml)
-// Strip both forms: tag pairs + their content, then any orphan tags
 function stripThink(text) {
-  return text
-    .replace(/&lt;think&gt;[\s\S]*?&lt;\/think&gt;/gi, '')
-    .replace(/<think>[\s\S]*?<\/think>/gi, '')
-    .replace(/&lt;\/?think&gt;?/gi, '')
-    .replace(/<\/?think>/gi, '')
-    .trim();
+  // Old records: &lt;think&gt;...&lt;/think&gt;
+  // New records: <think>...</think>
+  // Use index-based loop — more reliable than regex across lines
+  var result = text;
+  // Strip escaped think blocks
+  while (true) {
+    var start = result.indexOf('&lt;think&gt;');
+    if (start === -1) break;
+    var end = result.indexOf('&lt;/think&gt;', start);
+    if (end === -1) { result = result.substring(0, start); break; }
+    result = result.substring(0, start) + result.substring(end + 13); // 13 = '&lt;/think&gt;'.length
+  }
+  // Strip raw think blocks
+  while (true) {
+    var start = result.indexOf('<think>');
+    if (start === -1) break;
+    var end = result.indexOf('</think>', start);
+    if (end === -1) { result = result.substring(0, start); break; }
+    result = result.substring(0, start) + result.substring(end + 8);
+  }
+  return result.trim();
 }
 
 // ── Time-based context search ──
