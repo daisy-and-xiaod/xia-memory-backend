@@ -349,14 +349,16 @@ async function searchByTime(supabase, date, timeStr, contextSize) {
   // Extract context: contextSize lines before and after
   const start = Math.max(0, bestLine - contextSize);
   const end = Math.min(bestChunk.length, bestLine + contextSize + 1);
-  const contextLines = bestChunk.slice(start, end);
 
-  // Strip think blocks and filter noise
+  // Strip think from the whole chunk first (think blocks span multiple lines)
+  const chunkText = stripThink(bestChunk.slice(start, end).join('\n'));
+  const contextLines = chunkText.split('\n');
+
+  // Filter noise
   const clean = contextLines
-    .map(l => stripThink(l))
     .filter(l => {
       const s = l.trim();
-      return s && !s.startsWith('&lt;') && !s.startsWith('{') && !s.startsWith('__');
+      return s && !s.startsWith('{') && !s.startsWith('__');
     });
 
   const foundTime = bestChunk[bestLine].match(timeRe);
