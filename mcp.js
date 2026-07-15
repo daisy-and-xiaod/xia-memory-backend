@@ -269,10 +269,8 @@ function makeHandlers(supabase, cfAccountId, cfApiToken) {
       if (outlineText) parts.push('📅 该日大纲:\n' + outlineText + '\n');
       parts.push(`搜索方式: ${method}`);
       parts.push(dateSummary || `找到 ${results.length} 条记忆:`);
-      const text = parts;
-        '',
-        ...results.map((item, i) => formatResult(item, i, method, query, snippetSize)),
-      ].join('\n');
+      const allParts = parts.concat([''], results.map(function(item, i) { return formatResult(item, i, method, query, snippetSize); }));
+      const text = allParts.join('\n');
 
       return { content: [{ type: 'text', text }] };
     },
