@@ -94,13 +94,23 @@ app.post('/api/memories', async (req, res) => {
       return res.status(400).json({ error: 'content 不能为空' });
     }
 
+    const tagsArray = Array.isArray(tags) ? tags : [];
+
+    // event_index: UPSERT by date — delete old, insert new. No duplicates ever.
+    if (tagsArray.includes('event_index')) {
+      const dateTag = tagsArray.find(t => /^\d{4}-\d{2}-\d{2}$/.test(t));
+      if (dateTag) {
+        await supabase.from('memories').delete().contains('tags', ['event_index', dateTag]);
+      }
+    }
+
     const { data, error } = await supabase
       .from('memories')
       .insert({
         role,
         content: content.trim(),
         source: source || 'chat',
-        tags: Array.isArray(tags) ? tags : [],
+        tags: tagsArray,
         metadata: metadata || {},
       })
       .select()
