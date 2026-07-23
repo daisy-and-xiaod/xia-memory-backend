@@ -350,6 +350,16 @@ app.delete('/api/memories/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Block deletion of event_index records — only POST, never DELETE
+    const { data: existing } = await supabase
+      .from('memories')
+      .select('tags')
+      .eq('id', id)
+      .maybeSingle();
+    if (existing && existing.tags && existing.tags.includes('event_index')) {
+      return res.status(403).json({ error: 'event_index 记录禁止删除。只能 POST 追加，脚本自动去重。' });
+    }
+
     const { data, error } = await supabase
       .from('memories')
       .delete()
