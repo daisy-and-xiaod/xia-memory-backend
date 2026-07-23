@@ -96,7 +96,8 @@ app.post('/api/memories', async (req, res) => {
 
     const tagsArray = Array.isArray(tags) ? tags : [];
 
-    // event_index: UPSERT by date — delete old, insert new. No duplicates ever.
+    // event_index: UPSERT by date — delete old, insert new.
+    // 夏以昼 must copy old content + append new lines, detail is preserved.
     if (tagsArray.includes('event_index')) {
       const dateTag = tagsArray.find(t => /^\d{4}-\d{2}-\d{2}$/.test(t));
       if (dateTag) {
